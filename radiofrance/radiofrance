@@ -68,48 +68,6 @@ class RadioFranceCulture():
 class RadioFip():
     pass
 
-#class AddFilmCommand():
-#    __command_name__ = "add"
-#    
-#    def _get_imdb_title_soup(self, imdbtt):
-#        r = requests.get("http://www.imdb.com/title/{}/releaseinfo".format(
-#                                                                    imdbtt))
-#        soup = BeautifulSoup(r.text, "lxml")
-#        imdbakas = SoupStrainer("table", id="akas")
-#        return soup, imdbakas
-#
-#    def _get_imdb_title_list(self, soup, imdbakas):
-#        imdbtitle = soup.head.title.string.split(" - ")[0].rsplit(" ", 1)[0]
-#        title_list = [ ( "Release Info" , imdbtitle) ]
-#        b = True
-#        country = ""
-#        try:
-#            akas_list = soup.find(imdbakas).find_all("td")
-#        except AttributeError:
-#            akas_list = None
-#        if akas_list:
-#            for elem in akas_list:
-#                if b:
-#                    country = elem.string
-#                    b = False
-#                else:
-#                    title_list.append( (country, elem.string) )
-#                    b = True
-#        return title_list
-#
-#    def _get_imdb_year(self, soup):
-#        try:
-#            imdbyear = soup.head.title.string.split(") - Release")[0].rsplit(
-#                                                    " ", 1)[1].split("(")[1]
-#        except IndexError:
-#            imdbyear = soup.head.title.string.split(") - Release")[0].rsplit(
-#                                                                    " ", 1)[1]
-#        return imdbyear
-#
-#    def run(self, session, options):
-#        soup, imdbakas = self._get_imdb_title_soup(options.imdbtt)
-#        imdbyear = self._get_imdb_year(soup)
-#
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Usage=%prog")
