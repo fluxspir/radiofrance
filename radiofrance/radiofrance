@@ -59,7 +59,7 @@ class RadioFranceCulture():
                     dl += len(data)
                     f.write(data)
                     done = int(50 * dl / total_length)
-                    sys.stdout.write("[{}{}]".format('=' * done,\
+                    sys.stdout.write("\r[{}{}]".format('=' * done,\
                                                     ' ' * (50-done)))
                     sys.stdout.flush()
 
