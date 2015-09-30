@@ -1,0 +1,144 @@
+#!/usr/bin/env python
+#
+# fmdb : franck movie database
+
+#import pdb
+import datetime
+import os
+import sys
+#import re
+
+#import sqlalchemy
+#from sqlalchemy import create_engine
+#from sqlalchemy.orm import sessionmaker
+#from sqlalchemy.ext.declarative import declarative_base
+#from sqlalchemy import Column, Integer, String, Float, Date, Boolean 
+#from sqlalchemy import ForeignKey
+
+import requests
+from bs4 import BeautifulSoup, SoupStrainer
+
+import argparse
+
+home = os.path.expanduser("~")
+podcast_dir = os.path.join(home, "doc/podcast")
+if not os.path.isdir(podcast_dir):
+    print("create {} or ajust the podcast_dir please".format(podcast_dir))
+    sys.exit(3)
+
+fr_cult_base_url = "http://www.franceculture.fr/player/export-reecouter?content="
+fip_base_url = ""
+
+class RadioFranceCulture():
+    def __init__(self, stream_id):
+        r = requests.get("{}{}".format(fr_cult_base_url, stream_id))
+        soup = BeautifulSoup(r.text, "lxml")
+        self.title = soup.h1.string
+        self.link = soup.find(id="player-link").get("href")
+        print self.title
+        print self.link
+    
+    def get_stream(self):
+        download_timestamp = datetime.date.today().isoformat().replace("-",
+                                                            "").lstrip("20")
+        title_stream = self.title.replace(" ", "_")
+        filename = download_timestamp + "-" + title_stream + ".mp3"
+        filepath = os.path.join(podcast_dir, filename)
+
+        with open(filepath, "wb") as f:
+            print("Downloading {} as {}".format(self.link, filename))
+            r = requests.get(self.link, stream=True)
+            total_length = r.headers.get('content-length')
+
+            if total_length is None:
+                f.write(r.content)
+            else:
+                dl = 0
+                total_length = int(total_length)
+                for data in r.iter_content(chunk_size=total_length/100):
+                    dl += len(data)
+                    f.write(data)
+                    done = int(50 * dl / total_length)
+                    sys.stdout.write("[{}{}]".format('=' * done,\
+                                                    ' ' * (50-done)))
+                    sys.stdout.flush()
+
+        return False
+
+class RadioFip():
+    pass
+
+#class AddFilmCommand():
+#    __command_name__ = "add"
+#    
+#    def _get_imdb_title_soup(self, imdbtt):
+#        r = requests.get("http://www.imdb.com/title/{}/releaseinfo".format(
+#                                                                    imdbtt))
+#        soup = BeautifulSoup(r.text, "lxml")
+#        imdbakas = SoupStrainer("table", id="akas")
+#        return soup, imdbakas
+#
+#    def _get_imdb_title_list(self, soup, imdbakas):
+#        imdbtitle = soup.head.title.string.split(" - ")[0].rsplit(" ", 1)[0]
+#        title_list = [ ( "Release Info" , imdbtitle) ]
+#        b = True
+#        country = ""
+#        try:
+#            akas_list = soup.find(imdbakas).find_all("td")
+#        except AttributeError:
+#            akas_list = None
+#        if akas_list:
+#            for elem in akas_list:
+#                if b:
+#                    country = elem.string
+#                    b = False
+#                else:
+#                    title_list.append( (country, elem.string) )
+#                    b = True
+#        return title_list
+#
+#    def _get_imdb_year(self, soup):
+#        try:
+#            imdbyear = soup.head.title.string.split(") - Release")[0].rsplit(
+#                                                    " ", 1)[1].split("(")[1]
+#        except IndexError:
+#            imdbyear = soup.head.title.string.split(") - Release")[0].rsplit(
+#                                                                    " ", 1)[1]
+#        return imdbyear
+#
+#    def run(self, session, options):
+#        soup, imdbakas = self._get_imdb_title_soup(options.imdbtt)
+#        imdbyear = self._get_imdb_year(soup)
+#
+if __name__ == "__main__":
+
+    parser = argparse.ArgumentParser(description="Usage=%prog")
+    parser.add_argument('radio', nargs=1,
+                        choices=["culture", "cult", "c",
+                                "fip","f",],
+                        help="Radio you want to download the mp3")
+    parser.add_argument("stream_ids", nargs="+",
+                        action="store",
+                        help="id of streams")
+    
+    namespace = parser.parse_args(sys.argv[1:])
+
+    radios = {
+        "culture": RadioFranceCulture,
+        "cult": RadioFranceCulture,
+        "c": RadioFranceCulture,
+        "fip": RadioFip,
+        "f": RadioFip
+        }
+    Radio = radios[namespace.radio[0]]
+
+    try:
+        for stream_id in namespace.stream_ids:
+            dl_stream = Radio(stream_id)
+            stream = dl_stream.get_stream()
+            if stream:
+                msg = "Error while downloading stream {} on radio {}".format(\
+                                                dl_stream, namespace.radio[0])
+                print(msg)
+    except KeyboardInterrupt:
+        sys.exit(1)
