@@ -2,17 +2,19 @@
 #
 # fmdb : franck movie database
 
-#import pdb
+import pdb
 import datetime
 import os
 import sys
 #import re
 
-#import sqlalchemy
-#from sqlalchemy import create_engine
-#from sqlalchemy.orm import sessionmaker
-#from sqlalchemy.ext.declarative import declarative_base
-#from sqlalchemy import Column, Integer, String, Float, Date, Boolean 
+import ConfigParser
+
+import sqlalchemy
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import Column, Integer, String, Date, DateTime, Boolean 
 #from sqlalchemy import ForeignKey
 
 import requests
@@ -20,33 +22,85 @@ from bs4 import BeautifulSoup, SoupStrainer
 
 import argparse
 
+confparser = ConfigParser.ConfigParser()
 home = os.path.expanduser("~")
-podcast_dir = os.path.join(home, "doc/podcast")
+rc_file = ".franckdbrc"
+
+confparser.read(os.path.join(home, rc_file))
+db_url = confparser.get("radiofrance", "url")
+podcast_dir = os.path.join(home, confparser.get("radiofrance", "podcast_dir"))
 if not os.path.isdir(podcast_dir):
     print("create {} or ajust the podcast_dir please".format(podcast_dir))
     sys.exit(3)
 
-fr_cult_base_url = "http://www.franceculture.fr/player/export-reecouter?content="
+fr_cult_base_url = "http://www.franceculture.fr"
+fr_cult_player_url = fr_cult_base_url + "/player/reecouter?play="
 fip_base_url = ""
+
+Base = declarative_base()
+
+class RadioProgram(Base):
+    __tablename__ = "radio_program"
+    id = Column(Integer, primary_key=True)
+    radio = Column(String)
+    radio_id = Column(String)
+    emission = Column(String)
+    title = Column(String)
+    url = Column(String)
+    synopsis = Column(String)
+    datetime = Column(DateTime)
+    duration = Column(Integer)
+    timestamp = Column(Date)
+    listened = Column(Boolean, default=False)
+
 
 class RadioFranceCulture():
     def __init__(self, stream_id):
-        r = requests.get("{}{}".format(fr_cult_base_url, stream_id))
-        soup = BeautifulSoup(r.text, "lxml")
-        self.title = soup.h1.string
-        self.link = soup.find(id="player-link").get("href")
-        print self.title
-        print self.link
+        # what datas can be find on the player url
+        r_stream = requests.get("{}{}".format(fr_cult_player_url, stream_id))
+        soup_s = BeautifulSoup(r_stream.text, "lxml")
+        
+        self.stream_id = stream_id
+        self.emission = soup_s.find("span", { "class": "title" }).string
+        self.title = soup_s.find("span", { "class": "title-diffusion"}).string
+        self.path = soup_s.find("span", { "class": "path-diffusion"}).string
+        self.link = fr_cult_base_url + soup_s.find(id="player").get("href")
+
+        # what datas can be find on the synopsis url
+        r_description = requests.get("{}/{}".format(fr_cult_base_url,
+                                                                    self.path))
+        soup_d = BeautifulSoup(r_description.text, "lxml")
+        self.synopsis = str(soup_d.find("div", {"class": "field-item odd"}))
+
+        stream_dt = soup_d.find("span", {"class": "date"}).string.split("-")
+        stream_date = stream_dt[0].strip().split(".")
+        stream_time = stream_dt[1].strip().split(":")
+        self.stream_date = datetime.date(int(stream_date[2]), 
+                                            int(stream_date[1]),
+                                            int(stream_date[0]))
+        self.stream_time = datetime.time(int(stream_time[0]), 
+                                            int(stream_time[1]))
+        self.stream_datetime = datetime.datetime(self.stream_date.year,
+                                                self.stream_date.month,
+                                                self.stream_date.day,
+                                                self.stream_time.hour,
+                                                self.stream_time.minute)
+        self.duration = int(soup_d.find(
+                                "div", {"class": "listen"}).find(
+                                "span").string.split()[0])
+        self.download_timestamp = datetime.date.today()
     
     def get_stream(self):
-        download_timestamp = datetime.date.today().isoformat().replace("-",
-                                                            "").lstrip("20")
         title_stream = self.title.replace(" ", "_")
-        filename = download_timestamp + "-" + title_stream + ".mp3"
+        filename = self.stream_date.isoformat().replace("-", "").lstrip("20")\
+                                                + "-" + title_stream + "--" \
+                                                + str(self.duration) + "min"\
+                                                + ".mp3"
         filepath = os.path.join(podcast_dir, filename)
-
+        
         with open(filepath, "wb") as f:
-            print("Downloading {} as {}".format(self.link, filename))
+            print("Downloading {} as {}".format(self.link.encode("utf_8"),
+                                                filename.encode("utf_8")))
             r = requests.get(self.link, stream=True)
             total_length = r.headers.get('content-length')
 
@@ -64,8 +118,28 @@ class RadioFranceCulture():
                     sys.stdout.flush()
                 sys.stdout.write("\n")
                 sys.stdout.flush()
-            
-        return False
+
+    def insert_db(self, session):
+        values = {
+            "radio": "france_culture",
+            "radio_id": self.stream_id,
+            "emission": self.emission,
+            "title": self.title,
+            "url": self.link,
+            "synopsis": self.synopsis,
+            "datetime": self.stream_datetime,
+            "duration": self.duration,
+            "timestamp": self.download_timestamp,
+            "listened": False,
+            }
+        try:
+            new_entry = RadioProgram(**values)
+            session.add(new_entry)
+            session.commit()
+        except sqlalchemy.exc.IntegrityError:
+            print("Error while adding {} in database".format(self.title))
+            return False
+
 
 class RadioFip():
     pass
@@ -92,13 +166,16 @@ if __name__ == "__main__":
         }
     Radio = radios[namespace.radio[0]]
 
+    engine = create_engine(db_url, echo=False, convert_unicode=True)
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
     try:
         for stream_id in namespace.stream_ids:
             dl_stream = Radio(stream_id)
-            stream = dl_stream.get_stream()
-            if stream:
-                msg = "Error while downloading stream {} on radio {}".format(\
-                                                dl_stream, namespace.radio[0])
-                print(msg)
+            dl_stream.get_stream()
+            dl_stream.insert_db(session)
+    
     except KeyboardInterrupt:
         sys.exit(1)
